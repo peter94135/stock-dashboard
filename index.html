@@ -137,7 +137,10 @@ const FIREBASE_CONFIG = {
   appId: "1:759320799290:web:e15000031890438f3aad03"
 };
 const CLOUD_DOC = "dashboards/main";   // 題材設定存放的 Firestore 文件路徑
-const OWNER_UID = "JN5nkZ6t8TcEc6AJNvnISvdWKDt1";   // 只有此 UID（你本人 Google 登入）可編輯，其他人唯讀
+// 可編輯者名單（Google 登入 UID）。要新增編輯者就把對方 UID 加進這個陣列，並同步更新 Firestore 規則。
+const OWNER_UIDS = [
+  "JN5nkZ6t8TcEc6AJNvnISvdWKDt1",   // 本人
+];
 
 // 預設題材（附圖那組：半導體設備 / 檢測）
 const DEFAULT_THEMES = {
@@ -175,8 +178,8 @@ function $(id){return document.getElementById(id);}
 /* ============================== Firebase 雲端同步 + 權限 ============================== */
 let db=null, auth=null, currentUser=null, cloudReady=false, suppressCloud=false, cloudTimer=null;
 
-// 是否可編輯：未鎖定(OWNER_UID 空) → 任何人可編輯；已鎖定 → 只有本人
-function canEdit(){ return !OWNER_UID || (currentUser && currentUser.uid===OWNER_UID); }
+// 是否可編輯：名單為空 → 任何人可編輯；已設名單 → 只有名單內的登入者
+function canEdit(){ return OWNER_UIDS.length===0 || (currentUser && OWNER_UIDS.includes(currentUser.uid)); }
 function applyMode(){ document.body.classList.toggle("readonly", !canEdit()); }
 
 function updateAuthUI(){
@@ -185,10 +188,10 @@ function updateAuthUI(){
   if(currentUser){
     inb.style.display="none"; outb.style.display="";
     info.textContent = (currentUser.displayName||currentUser.email||"已登入") + (canEdit()?"（可編輯）":"（唯讀）");
-    rb.style.display = OWNER_UID ? "none" : "";   // 尚未鎖定時，顯示「取得規則/UID」協助設定
+    rb.style.display = "";   // 任何登入者都能查看自己的 UID（方便加入編輯名單）
   }else{
     inb.style.display=""; outb.style.display="none"; rb.style.display="none";
-    info.textContent = OWNER_UID ? "唯讀模式 · 登入以編輯" : "";
+    info.textContent = OWNER_UIDS.length ? "唯讀模式 · 登入以編輯" : "";
   }
 }
 
@@ -534,18 +537,20 @@ $("loginBtn").onclick = ()=>{
 $("logoutBtn").onclick = ()=>{ if(auth) auth.signOut(); };
 $("setupRulesBtn").onclick = ()=>{
   if(!currentUser) return;
+  const list = [...new Set([...OWNER_UIDS, currentUser.uid])];
+  const arr = list.map(u=>`"${u}"`).join(", ");
   const rules =
 `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /dashboards/{doc} {
       allow read: if true;
-      allow write: if request.auth.uid == "${currentUser.uid}";
+      allow write: if request.auth.uid in [${arr}];
     }
   }
 }`;
   navigator.clipboard.writeText(rules).catch(()=>{});
-  prompt("這是你的 UID（請複製貼回給 Claude，並把已複製到剪貼簿的規則貼進 Firestore→規則→發布）：", currentUser.uid);
+  prompt("這是你的 UID（要成為編輯者，把它貼給擁有者加入名單）。\n（已複製含此 UID 的 Firestore 規則到剪貼簿）", currentUser.uid);
 };
 
 function setupAuto(){
