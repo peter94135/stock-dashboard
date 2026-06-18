@@ -65,6 +65,11 @@
   .err{color:var(--down);font-size:12px;}
   .help{font-size:12px;color:var(--muted);max-width:760px;line-height:1.6;margin:8px 0 22px;}
   .help code{background:var(--chip);padding:1px 6px;border-radius:4px;color:#c9d1d9;}
+  /* 唯讀模式：隱藏所有編輯控制 */
+  body.readonly #addThemeBtn,
+  body.readonly .add-row,
+  body.readonly .theme-head [data-act],
+  body.readonly .del{ display:none !important; }
   dialog{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:0;width:min(420px,92vw);}
   dialog::backdrop{background:rgba(0,0,0,.55);}
   .dlg-body{padding:20px;}
@@ -86,6 +91,10 @@
   </select>
   <button class="btn" id="refreshBtn">↻ 重新整理</button>
   <button class="btn primary" id="addThemeBtn">＋ 新增題材</button>
+  <span id="authInfo" class="status muted"></span>
+  <button class="btn" id="setupRulesBtn" style="display:none" title="複製鎖定規則並顯示你的 UID">🔑 取得我的規則/UID</button>
+  <button class="btn" id="loginBtn" style="display:none">登入</button>
+  <button class="btn ghost" id="logoutBtn" style="display:none">登出</button>
 </header>
 
 <main>
@@ -110,6 +119,7 @@
 <!-- Firebase（雲端同步題材設定，可跨裝置；未填 config 則自動停用，只用本機 localStorage） -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
 <script>
 /* ============================== 設定 ============================== */
@@ -127,6 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:759320799290:web:e15000031890438f3aad03"
 };
 const CLOUD_DOC = "dashboards/main";   // 題材設定存放的 Firestore 文件路徑
+const OWNER_UID = "";                   // 鎖定後填入「你的 Google 登入 UID」：填了之後只有你能編輯，其他人唯讀
 
 // 預設題材（附圖那組：半導體設備 / 檢測）
 const DEFAULT_THEMES = {
@@ -161,14 +172,34 @@ function saveAll(){
 }
 function $(id){return document.getElementById(id);}
 
-/* ============================== Firebase 雲端同步 ============================== */
-let db=null, cloudReady=false, suppressCloud=false, cloudTimer=null;
+/* ============================== Firebase 雲端同步 + 權限 ============================== */
+let db=null, auth=null, currentUser=null, cloudReady=false, suppressCloud=false, cloudTimer=null;
+
+// 是否可編輯：未鎖定(OWNER_UID 空) → 任何人可編輯；已鎖定 → 只有本人
+function canEdit(){ return !OWNER_UID || (currentUser && currentUser.uid===OWNER_UID); }
+function applyMode(){ document.body.classList.toggle("readonly", !canEdit()); }
+
+function updateAuthUI(){
+  const inb=$("loginBtn"), outb=$("logoutBtn"), info=$("authInfo"), rb=$("setupRulesBtn");
+  if(!cloudReady){ inb.style.display=outb.style.display=rb.style.display="none"; return; }
+  if(currentUser){
+    inb.style.display="none"; outb.style.display="";
+    info.textContent = (currentUser.displayName||currentUser.email||"已登入") + (canEdit()?"（可編輯）":"（唯讀）");
+    rb.style.display = OWNER_UID ? "none" : "";   // 尚未鎖定時，顯示「取得規則/UID」協助設定
+  }else{
+    inb.style.display=""; outb.style.display="none"; rb.style.display="none";
+    info.textContent = OWNER_UID ? "唯讀模式 · 登入以編輯" : "";
+  }
+}
+
 function initFirebase(){
   if(!FIREBASE_CONFIG.apiKey || typeof firebase==="undefined") return; // 未設定 → 只用本機
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.firestore();
+    auth = firebase.auth();
     cloudReady = true;
+    auth.onAuthStateChanged(u=>{ currentUser=u; updateAuthUI(); applyMode(); render(); });
     $("status").innerHTML = "已連線雲端，載入設定中…";
     db.doc(CLOUD_DOC).onSnapshot(snap=>{
       if(!snap.exists){ saveCloud(); return; }     // 首次：把目前設定寫上雲端
@@ -186,7 +217,7 @@ function initFirebase(){
   }catch(e){ console.warn("Firebase 初始化失敗：", e.message); }
 }
 function saveCloud(){
-  if(!cloudReady || suppressCloud) return;
+  if(!cloudReady || suppressCloud || !canEdit()) return;
   clearTimeout(cloudTimer);
   cloudTimer = setTimeout(()=>{
     db.doc(CLOUD_DOC).set({themes, names, updated:Date.now()}, {merge:true})
@@ -341,6 +372,7 @@ const COLS = [
 ];
 
 function render(){
+  applyMode();   // 依登入狀態套用唯讀／可編輯
   const root = $("themes");
   root.innerHTML = "";
   const tnames = Object.keys(themes);
@@ -492,6 +524,29 @@ $("themeOk").onclick = ()=>{
   themes[n]=[]; saveAll(); $("themeDialog").close(); render();
 };
 $("themeNameInput").onkeydown = e=>{ if(e.key==="Enter") $("themeOk").click(); };
+
+/* ----- 登入 / 登出 / 取得規則 ----- */
+$("loginBtn").onclick = ()=>{
+  if(!auth) return;
+  auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
+    .catch(e=>alert("登入失敗：" + e.message));
+};
+$("logoutBtn").onclick = ()=>{ if(auth) auth.signOut(); };
+$("setupRulesBtn").onclick = ()=>{
+  if(!currentUser) return;
+  const rules =
+`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /dashboards/{doc} {
+      allow read: if true;
+      allow write: if request.auth.uid == "${currentUser.uid}";
+    }
+  }
+}`;
+  navigator.clipboard.writeText(rules).catch(()=>{});
+  prompt("這是你的 UID（請複製貼回給 Claude，並把已複製到剪貼簿的規則貼進 Firestore→規則→發布）：", currentUser.uid);
+};
 
 function setupAuto(){
   if(autoTimer){ clearInterval(autoTimer); autoTimer=null; }
