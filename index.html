@@ -156,6 +156,9 @@ const FIREBASE_CONFIG = {
   appId: "1:759320799290:web:e15000031890438f3aad03"
 };
 const CLOUD_DOC = "dashboards/main";   // 題材設定存放的 Firestore 文件路徑
+
+// 部署 Cloudflare Worker 後，把網址填在這裡 → 線上版即可完整顯示 P/E、市值（例如 https://xxx.workers.dev）
+const WORKER_URL = "";
 // 可編輯者名單（Google 登入 UID）。要新增編輯者就把對方 UID 加進這個陣列，並同步更新 Firestore 規則。
 const OWNER_UIDS = [
   "JN5nkZ6t8TcEc6AJNvnISvdWKDt1",   // 本人
@@ -253,9 +256,16 @@ const IS_LOCAL = ["localhost","127.0.0.1"].includes(location.hostname);
 const LOCAL = IS_LOCAL ? (location.origin + "/yf?url=") : null;
 
 async function fetchJSON(url){
-  // 本機模式只走本機代理（最快、最準）；單獨開檔才回退公開 proxy
-  const attempts = LOCAL ? [LOCAL + encodeURIComponent(url)]
-                         : [...PROXIES.map(p=>p(url)), url];
+  // 優先順序：本機代理 → Cloudflare Worker → 公開 proxy → 直連
+  let attempts;
+  if(LOCAL){
+    attempts = [LOCAL + encodeURIComponent(url)];
+  }else if(WORKER_URL){
+    attempts = [WORKER_URL.replace(/\/$/,"") + "/?url=" + encodeURIComponent(url),
+                ...PROXIES.map(p=>p(url))];
+  }else{
+    attempts = [...PROXIES.map(p=>p(url)), url];
+  }
   for(const a of attempts){
     try{
       const ctrl = new AbortController();

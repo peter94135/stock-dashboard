@@ -40,6 +40,14 @@
    > 注意：上面規則代表「知道網址的人都能改你的題材」。若要鎖成只有你能改，
    > 可改用 Google 登入並把 write 規則設為 `if request.auth.uid == "你的UID"`。
 
+## 讓線上版也能顯示 P/E、市值（Cloudflare Worker，選用、免費）
+Yahoo 的 P/E、市值 API 需要 crumb 授權，公開 proxy 拿不到。部署一個免費 Worker 即可解決：
+1. <https://dash.cloudflare.com/> 註冊／登入（免費，不需綁卡）。
+2. 左側 **Workers & Pages → Create application → Create Worker** → 命名 → **Deploy**。
+3. 進入該 Worker → **Edit code** → 把 `worker.js` 內容整段貼上 → **Deploy**。
+4. 複製 Worker 網址（`https://<名稱>.<子網域>.workers.dev`），填到 `index.html` 的 `WORKER_URL`，commit & push。
+   - 之後線上版會優先走 Worker（完整 P/E/市值，股價也更快更穩），失敗才回退公開 proxy。
+
 ## 資料來源說明
 - 盤中約 15 分鐘延遲，非逐筆即時。
-- 線上版的 P/E、市值若公開 proxy 取不到，會顯示「—」，其餘行情照常。
+- 未設定 Worker 時，線上版的 P/E、市值會顯示「—」（其餘行情照常）；本機版則完整。
