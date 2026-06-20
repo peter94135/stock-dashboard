@@ -14,10 +14,14 @@
 會用你自己的網路 IP 直連 Yahoo，避開限流與 CORS。瀏覽器開 <http://localhost:8765/>。
 
 ## 功能
-- 依題材分區，每區一張即時報價表（Last / Day Volume / Day~Year Change / P/E / Market Cap）
+- 上方題材按鈕（tabs），一次顯示一個題材的即時報價表（Last / Day Volume / Day~Year Change / P/E / Market Cap）
+- **只抓「目前選取題材」的股票**，所以切換很快、不會一次抓上百檔（學自 hgvf.github.io 的分類載入做法）
+- 報價快取在 localStorage，切換題材／重開即時顯示，背景再更新
+- 介面為英文，題材名稱維持中文；股票代號連到 TradingView
 - 新增／刪除題材、新增／刪除股票，點欄位標題排序，漲綠跌紅
-- 自動更新（30 秒～5 分鐘可選）
+- 自動更新（30 秒～5 分鐘可選，只更新目前題材）
 - 設定存於瀏覽器 localStorage；若設定 Firebase 則同步到雲端
+- 主控台輸入 `importHgvfThemes()`（需登入為編輯者）可一鍵把內建 21 個題材覆蓋寫入雲端
 
 ## 設定 Firebase 雲端同步（選用）
 1. 到 <https://console.firebase.google.com/> 建立專案。
