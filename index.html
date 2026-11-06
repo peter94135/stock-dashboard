@@ -369,9 +369,18 @@ async function fetchChart(sym){
     const ts = res.timestamp || [];
     const closes = (res.indicators && res.indicators.quote && res.indicators.quote[0].close) || [];
     const last = m.regularMarketPrice;
-    const prev = m.chartPreviousClose ?? m.previousClose;
     const nowSec = m.regularMarketTime || Math.floor(Date.now()/1000);
     const firstClose = closes.find(c=>c!=null);
+    // 前一交易日收盤：取「今天（交易所當地時間）之前」最後一筆日收盤。
+    // 注意 meta.chartPreviousClose 是 1y 區間「開始前」的收盤，不是昨收。
+    const gmt = m.gmtoffset || 0;
+    const dayStart = Math.floor((nowSec + gmt)/86400)*86400 - gmt;
+    let prev = null;
+    for(let i=0;i<ts.length;i++){
+      if(closes[i]==null) continue;
+      if(ts[i] < dayStart) prev = closes[i]; else break;
+    }
+    if(prev==null) prev = m.previousClose ?? null;
     const ref = (daysAgo)=>{
       const target = nowSec - daysAgo*86400;
       let best=null;
